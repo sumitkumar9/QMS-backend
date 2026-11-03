@@ -1,0 +1,92 @@
+// Prisma schema — QMS API
+//
+// INITIAL TABLES ONLY. The full schema is proposed in docs/DATABASE_SCHEMA.md and will be
+// added here after review. Conventions (keep them for every new model):
+//   - Model: PascalCase singular. Table: @@map("snake_case_plural"). Columns: @map("snake_case").
+//   - IDs: UUID v7 (`@default(uuid(7)) @db.Uuid`) — time-ordered, index friendly.
+//   - Tenant-owned models carry `organizationId` and tenant-first composite indexes,
+//     and must be registered in src/db/tenant.ts (TENANT_MODELS).
+//   - Timestamps: createdAt / updatedAt as timestamptz.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+/// A tenant (customer company). Every tenant-owned row points to one organization.
+model Organization {
+  id        String             @id @default(uuid(7)) @db.Uuid
+  name      String
+  slug      String             @unique
+  status    OrganizationStatus @default(ACTIVE)
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime?          @map("deleted_at") @db.Timestamptz(3)
+
+  memberships Membership[]
+
+  @@map("organizations")
+}
+
+/// Global identity. A user can belong to many organizations through Membership.
+model User {
+  id                String     @id @default(uuid(7)) @db.Uuid
+  /// Always stored lower-cased and trimmed.
+  email             String     @unique
+  /// Null for SSO-only / invited users who have not set a password yet.
+  passwordHash      String?    @map("password_hash")
+  firstName         String     @map("first_name")
+  lastName          String     @map("last_name")
+  status            UserStatus @default(ACTIVE)
+  /// SaaS operator access (cross-tenant platform routes only).
+  isPlatformAdmin   Boolean    @default(false) @map("is_platform_admin")
+  lastLoginAt       DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  passwordChangedAt DateTime?  @map("password_changed_at") @db.Timestamptz(3)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt         DateTime?  @map("deleted_at") @db.Timestamptz(3)
+
+  memberships Membership[]
+
+  @@map("users")
+}
+
+/// User ↔ Organization link. This row (not the user) is what authorization checks.
+model Membership {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  status         MembershipStatus @default(INVITED)
+  joinedAt       DateTime?        @map("joined_at") @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("memberships")
+}

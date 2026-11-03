@@ -1,0 +1,24 @@
+# Local development dependencies. Start with: docker compose up -d
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qms
+      POSTGRES_PASSWORD: qms
+      POSTGRES_DB: qms
+    ports:
+      - '5432:5432'
+    volumes:
+      # Postgres 18+ images keep data under /var/lib/postgresql/<major>/docker
+      - pgdata:/var/lib/postgresql
+      # Creates the separate qms_test database used by integration tests
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U qms -d qms']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
